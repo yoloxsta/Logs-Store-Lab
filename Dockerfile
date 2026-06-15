@@ -4,11 +4,13 @@ FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
 WORKDIR /app
 
 # Copy go mod files
-COPY go.mod go.sum ./
-RUN go mod download
+COPY go.mod ./
 
-# Copy source code
+# Copy source code first for go mod tidy
 COPY main.go ./
+
+# Download dependencies (go.sum will be generated)
+RUN go mod tidy && go mod download
 
 # Build the application for ARM64
 ARG TARGETPLATFORM
