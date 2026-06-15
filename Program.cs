@@ -5,9 +5,9 @@ namespace LabLogsCollector;
 
 class Program
 {
-    private const int LogIntervalMinutes = 15;
-    private const string PvMountPath = "/pv-logs";
-    private const string Region = "ap-south-1";
+    public const int LogIntervalMinutes = 15;
+    public const string PvMountPath = "/pv-logs";
+    public const string Region = "ap-south-1";
 
     static async Task Main(string[] args)
     {
@@ -26,7 +26,7 @@ class LogCollector
 {
     private readonly Kubernetes _k8sClient;
     private readonly string _namespace;
-    private readonly TimeSpan _logInterval = TimeSpan.FromMinutes(15);
+    private readonly TimeSpan _logInterval = TimeSpan.FromMinutes(Program.LogIntervalMinutes);
 
     public LogCollector(string namespaceName)
     {
