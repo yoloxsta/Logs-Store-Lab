@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: lab-logs-collector
-        image: <AWS_ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/hello-world:pvlab
+        image: 769703697433.dkr.ecr.ap-south-1.amazonaws.com/hello-world:pvlab-1ec94ea33382e9b67ceac88852c60efed9866cdd
         imagePullPolicy: Always
         env:
         - name: POD_NAMESPACE
