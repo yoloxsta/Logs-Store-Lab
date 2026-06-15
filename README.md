@@ -3,6 +3,7 @@
 Collects pod logs every 15 minutes and stores on Persistent Volume.
 
 ## Details
+- **Language**: .NET 8.0
 - **EKS**: UATMuzic (Mumbai)
 - **Namespace**: music-uat
 - **Storage**: ebs-sc (10Gi)

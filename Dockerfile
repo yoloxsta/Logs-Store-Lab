@@ -1,41 +1,29 @@
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
-
-# Install git for go mod
-RUN apk add --no-cache git
-
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS builder
 WORKDIR /app
 
-# Copy go mod files
-COPY go.mod ./
+# Copy project file and restore
+COPY LabLogsCollector.csproj ./
+RUN dotnet restore
 
-# Copy source code first for go mod tidy
-COPY main.go ./
-
-# Download dependencies (go.sum will be generated)
-RUN go mod tidy && go mod download
-
-# Build the application for ARM64
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -installsuffix cgo -o lab-logs-collector .
+# Copy source and build
+COPY Program.cs ./
+RUN dotnet publish -c Release -o out
 
 # Runtime stage
-FROM alpine:latest
+FROM mcr.microsoft.com/dotnet/runtime:8.0-alpine
 
-RUN apk --no-cache add ca-certificates
-
-WORKDIR /root/
-
-# Copy binary from builder
-COPY --from=builder /app/lab-logs-collector .
+WORKDIR /app
 
 # Create PV mount directory
 RUN mkdir -p /pv-logs
 
-# Set environment variables
-ENV POD_NAMESPACE=default
-ENV POD_NAME=lab-logs-collector
+# Copy binary from builder
+COPY --from=builder /app/out .
 
-# Run the binary
-CMD ["./lab-logs-collector"]
+# Set environment variables
+ENV POD_NAMESPACE=music-uat
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+
+# Run the application
+ENTRYPOINT ["dotnet", "LabLogsCollector.dll"]
