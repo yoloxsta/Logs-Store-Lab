@@ -1,6 +1,9 @@
 # Build stage
 FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
 
+# Install git for go mod
+RUN apk add --no-cache git
+
 WORKDIR /app
 
 # Copy go mod files
