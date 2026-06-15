@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-logs-collector
+  namespace: music-uat
+  labels:
+    app: lab-logs-collector
+    environment: uat
+    tag: pvlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lab-logs-collector
+      tag: pvlab
+  template:
+    metadata:
+      labels:
+        app: lab-logs-collector
+        tag: pvlab
+    spec:
+      containers:
+      - name: lab-logs-collector
+        image: <AWS_ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/hello-world:pvlab
+        imagePullPolicy: Always
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        volumeMounts:
+        - name: pv-logs
+          mountPath: /pv-logs
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          exec:
+            command:
+            - cat
+            - /pv-logs
+          initialDelaySeconds: 30
+          periodSeconds: 60
+        readinessProbe:
+          exec:
+            command:
+            - ls
+            - /pv-logs
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: pv-logs
+        persistentVolumeClaim:
+          claimName: lab-logs-pvc
+      restartPolicy: Always
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: topology.kubernetes.io/region
+                operator: In
+                values:
+                - ap-south-1
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - arm64

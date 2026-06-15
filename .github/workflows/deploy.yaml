@@ -1,0 +1,108 @@
+name: Build and Push to ECR
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: hello-world
+  IMAGE_TAG: pvlab
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push Docker image for ARM64
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      run: |
+        docker buildx build --platform linux/arm64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG-${{ github.sha }} --push .
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Output image URI
+      run: |
+        echo "Image pushed: ${{ steps.build-image.outputs.image }}"
+
+  # Uncomment when ready to deploy
+  # deploy-to-eks:
+  #   needs: build-and-push
+  #   runs-on: ubuntu-latest
+  #   
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+  #
+  #   - name: Configure AWS credentials
+  #     uses: aws-actions/configure-aws-credentials@v4
+  #     with:
+  #       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #       aws-region: ${{ env.AWS_REGION }}
+  #
+  #   - name: Install kubectl
+  #     uses: azure/setup-kubectl@v3
+  #     with:
+  #       version: 'v1.28.0'
+  #
+  #   - name: Update kubeconfig for EKS
+  #     run: |
+  #       aws eks update-kubeconfig --name UATMuzic --region ${{ env.AWS_REGION }}
+  #
+  #   - name: Get ECR registry
+  #     id: login-ecr
+  #     uses: aws-actions/amazon-ecr-login@v2
+  #
+  #   - name: Deploy to EKS
+  #     env:
+  #       ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+  #     run: |
+  #       # Replace placeholder with actual ECR image
+  #       sed -i "s|<AWS_ACCOUNT_ID>|${{ env.ECR_REGISTRY }}|g" k8s/deployment.yaml
+  #       
+  #       # Apply Kubernetes manifests
+  #       kubectl apply -f k8s/pvc.yaml
+  #       kubectl apply -f k8s/deployment.yaml
+  #
+  #   - name: Verify deployment
+  #     run: |
+  #       kubectl rollout status deployment/lab-logs-collector -n music-uat --timeout=300s
+  #       kubectl get pods -n music-uat | grep lab-logs
+  #       kubectl get pvc -n music-uat
+  #
+  #   - name: Show deployment logs
+  #     run: |
+  #       kubectl logs -l app=lab-logs-collector -n music-uat --tail=50

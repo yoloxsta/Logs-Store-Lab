@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lab-logs-pvc
+  namespace: music-uat
+  labels:
+    app: lab-logs-collector
+    environment: uat
+    tag: pvlab
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: ebs-sc
+  resources:
+    requests:
+      storage: 10Gi
