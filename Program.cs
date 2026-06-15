@@ -1,6 +1,3 @@
-using k8s;
-using k8s.Models;
-
 namespace LabLogsCollector;
 
 class Program
