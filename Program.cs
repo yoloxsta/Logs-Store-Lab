@@ -16,7 +16,8 @@ class Program
         Console.WriteLine("Tag: pvlab");
 
         var namespaceName = Environment.GetEnvironmentVariable("POD_NAMESPACE") ?? "music-uat";
-        var collector = new LogCollector(namespaceName);
+        var podName = Environment.GetEnvironmentVariable("POD_NAME") ?? "lab-logs-collector";
+        var collector = new LogCollector(namespaceName, podName);
         
         await collector.RunAsync();
     }
@@ -24,17 +25,17 @@ class Program
 
 class LogCollector
 {
-    private readonly Kubernetes _k8sClient;
     private readonly string _namespace;
+    private readonly string _podName;
     private readonly TimeSpan _logInterval = TimeSpan.FromMinutes(Program.LogIntervalMinutes);
 
-    public LogCollector(string namespaceName)
+    public LogCollector(string namespaceName, string podName)
     {
         _namespace = namespaceName;
-        var config = KubernetesClientConfiguration.InClusterConfig();
-        _k8sClient = new Kubernetes(config);
+        _podName = podName;
         
         Console.WriteLine($"Namespace: {_namespace}");
+        Console.WriteLine($"Pod Name: {_podName}");
         Console.WriteLine($"PV Mount Path: {Program.PvMountPath}");
         Console.WriteLine($"Log Interval: {_logInterval}");
     }
@@ -74,47 +75,29 @@ class LogCollector
 
         try
         {
-            var pods = await _k8sClient.ListNamespacedPodAsync(_namespace);
-            Console.WriteLine($"Found {pods.Items.Count} pods");
-
-            foreach (var pod in pods.Items)
-            {
-                foreach (var container in pod.Spec.Containers)
-                {
-                    try
-                    {
-                        var logs = await GetPodLogsAsync(pod.Metadata.Name, container.Name);
-                        var logFile = Path.Combine(logDir, $"{pod.Metadata.Name}_{container.Name}.log");
-                        
-                        await File.WriteAllTextAsync(logFile, logs);
-                        Console.WriteLine($"Saved logs for pod {pod.Metadata.Name} container {container.Name} ({logs.Length} bytes)");
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error getting logs for pod {pod.Metadata.Name} container {container.Name}: {ex.Message}");
-                    }
-                }
-            }
+            // Write sample log file
+            var logContent = $"Log collected at {DateTime.UtcNow:O}\n" +
+                            $"Namespace: {_namespace}\n" +
+                            $"Pod: {_podName}\n" +
+                            $"Cluster: UATMuzic\n" +
+                            $"Region: {Program.Region}\n" +
+                            $"Message: Lab logs stored successfully\n";
+            
+            var logFile = Path.Combine(logDir, $"lab-logs_{timestamp}.log");
+            await File.WriteAllTextAsync(logFile, logContent);
+            Console.WriteLine($"Saved log file: {logFile} ({logContent.Length} bytes)");
 
             // Write metadata
-            var metadata = $"Log collection completed at {DateTime.UtcNow:O}\nCluster: UATMuzic\nRegion: {Program.Region}\nPods processed: {pods.Items.Count}\n";
+            var metadata = $"Log collection completed at {DateTime.UtcNow:O}\n" +
+                          $"Cluster: UATMuzic\n" +
+                          $"Region: {Program.Region}\n" +
+                          $"Namespace: {_namespace}\n";
             await File.WriteAllTextAsync(Path.Combine(logDir, "_metadata.txt"), metadata);
+            Console.WriteLine($"Metadata file written");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error collecting logs: {ex.Message}");
         }
-    }
-
-    private async Task<string> GetPodLogsAsync(string podName, string containerName)
-    {
-        var stream = await _k8sClient.ReadNamespacedPodLogAsync(
-            podName,
-            _namespace,
-            container: containerName
-        );
-
-        using var reader = new StreamReader(stream);
-        return await reader.ReadToEndAsync();
     }
 }

@@ -7,8 +7,4 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="KubernetesClient" Version="13.0.26" />
-  </ItemGroup>
-
 </Project>
