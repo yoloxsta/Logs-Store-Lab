@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: lab-logs-collector
-        image: 769703697433.dkr.ecr.ap-south-1.amazonaws.com/hello-world:pvlab-1ec94ea33382e9b67ceac88852c60efed9866cdd
+        image: 769703697433.dkr.ecr.ap-south-1.amazonaws.com/hello-world:pvlab-1ee502c95225a9cbfdf0c54947043c01b99616ea
         imagePullPolicy: Always
         env:
         - name: POD_NAMESPACE
@@ -42,20 +42,6 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "200m"
-        livenessProbe:
-          exec:
-            command:
-            - cat
-            - /pv-logs
-          initialDelaySeconds: 30
-          periodSeconds: 60
-        readinessProbe:
-          exec:
-            command:
-            - ls
-            - /pv-logs
-          initialDelaySeconds: 5
-          periodSeconds: 10
       volumes:
       - name: pv-logs
         persistentVolumeClaim:
