@@ -283,6 +283,288 @@ Add secrets to your repository:
 
 Push to main branch to trigger automatic build.
 
+---
+
+## PVC Access Modes and Binding
+
+### Access Modes
+
+| Access Mode | Description | Storage Support | Use Case |
+|-------------|-------------|-----------------|----------|
+| **ReadWriteOnce (RWO)** | Single node can read/write | EBS, Local | Single pod, database |
+| **ReadWriteMany (RWX)** | Multiple nodes can read/write | EFS, NFS | Multiple pods, shared data |
+| **ReadOnlyMany (ROX)** | Multiple nodes can read only | EFS, NFS | Config files |
+
+### Volume Binding Modes
+
+| Mode | Behavior | When to Use |
+|------|----------|-------------|
+| **Immediate** | PV created immediately when PVC is created | EFS, when you know the AZ in advance |
+| **WaitForFirstConsumer** | PV created only when first pod uses the PVC | EBS, to ensure PV is in same AZ as pod |
+
+### Your Current Setup (EBS - RWO)
+
+```yaml
+# pvc.yaml - ReadWriteOnce (RWO)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lab-logs-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce    # Single node only
+  storageClassName: ebs-sc
+  resources:
+    requests:
+      storage: 2Gi
+```
+
+**Behavior:**
+```
+┌─────────────────────────────────────────────────────────┐
+│         ReadWriteOnce (RWO) - EBS Volume                │
+├─────────────────────────────────────────────────────────┤
+│  Node 1: ✅ Can mount and read/write                    │
+│  Node 2: ❌ CANNOT mount (volume already attached)      │
+│  Node 3: ❌ CANNOT mount (volume already attached)      │
+│                                                         │
+│  If pod moves to Node 2:                               │
+│    → EBS detaches from Node 1                          │
+│    → EBS attaches to Node 2                            │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Solution: Mount EBS/EFS on EC2 Jump Host
+
+### Problem with EBS (RWO)
+
+EBS volumes can only be attached to **ONE instance at a time**. You cannot:
+- ❌ Mount EBS on EC2 jump host while pod is using it
+- ❌ Access data from multiple locations simultaneously
+
+### Solution: Use EFS (RWX)
+
+EFS allows **multiple mounts simultaneously**. You can:
+- ✅ Mount on EC2 jump host
+- ✅ Mount on EKS pods
+- ✅ Access from both at the same time
+
+### EFS Setup for EC2 + EKS Access
+
+#### Step 1: Create EFS File System
+
+```bash
+# Create EFS
+aws efs create-file-system \
+  --performance-mode generalPurpose \
+  --throughput-mode bursting \
+  --region ap-south-1 \
+  --tags Key=Name,Value=lab-logs-efs
+
+# Note the File System ID: fs-xxxxxxxxx
+```
+
+#### Step 2: Create Mount Targets
+
+```bash
+# Create mount target in each AZ
+aws efs create-mount-target \
+  --file-system-id fs-xxxxxxxxx \
+  --subnet-id subnet-xxxxxxxxx \
+  --security-groups sg-xxxxxxxxx \
+  --region ap-south-1
+
+# Repeat for each AZ where your EKS nodes are
+```
+
+#### Step 3: Install EFS CSI Driver on EKS
+
+```bash
+# Install EFS CSI Driver
+kubectl apply -k github.com/kubernetes-sigs/aws-efs-csi-driver/deploy/kubernetes/overlays/stable
+
+# Verify installation
+kubectl get pods -n kube-system -l app=efs-csi-controller
+```
+
+#### Step 4: Create EFS StorageClass
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+provisioner: efs.csi.aws.com
+volumeBindingMode: Immediate
+```
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+provisioner: efs.csi.aws.com
+volumeBindingMode: Immediate
+EOF
+```
+
+#### Step 5: Create PV (Manual)
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: lab-logs-efs-pv
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-xxxxxxxxx  # Replace with your EFS ID
+```
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: lab-logs-efs-pv
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-xxxxxxxxx
+EOF
+```
+
+#### Step 6: Create PVC
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lab-logs-efs-pvc
+  namespace: music-uat
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 5Gi
+```
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lab-logs-efs-pvc
+  namespace: music-uat
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 5Gi
+EOF
+```
+
+#### Step 7: Update Deployment to Use EFS PVC
+
+```yaml
+# Update deployment.yaml volumes section
+volumes:
+- name: pv-logs
+  persistentVolumeClaim:
+    claimName: lab-logs-efs-pvc  # Use EFS PVC instead
+```
+
+#### Step 8: Mount EFS on EC2 Jump Host
+
+```bash
+# SSH to EC2 jump host
+ssh -i your-key.pem ec2-user@<JUMP-HOST-IP>
+
+# Install EFS utils
+sudo yum install -y amazon-efs-utils
+
+# Create mount point
+sudo mkdir -p /mnt/lab-logs
+
+# Mount EFS
+sudo mount -t efs fs-xxxxxxxxx:/ /mnt/lab-logs
+
+# View logs
+ls -la /mnt/lab-logs
+cat /mnt/lab-logs/2026-06-16_00-30-20/lab-logs_2026-06-16_00-30-20.log
+
+# Auto-mount on boot (add to /etc/fstab)
+echo "fs-xxxxxxxxx:/ /mnt/lab-logs efs defaults,_netdev 0 0" | sudo tee -a /etc/fstab
+```
+
+### EFS Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    EFS Shared Storage                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────┐         ┌─────────────────────────┐   │
+│  │ EC2 Jump Host   │         │   EKS Cluster           │   │
+│  │                 │         │                         │   │
+│  │ /mnt/lab-logs   │◄───────►│   Pod 1: /pv-logs       │   │
+│  │                 │   EFS   │   Pod 2: /pv-logs       │   │
+│  │ ✅ Read/Write   │         │   Pod 3: /pv-logs       │   │
+│  │                 │         │                         │   │
+│  └─────────────────┘         │   ✅ All can access     │   │
+│                              │   simultaneously!       │   │
+│                              └─────────────────────────┘   │
+│                                                             │
+│  All see the SAME data at the SAME time!                    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### EBS vs EFS Comparison
+
+| Feature | EBS | EFS |
+|---------|-----|-----|
+| **Access Mode** | RWO (ReadWriteOnce) | RWX (ReadWriteMany) |
+| **Multi-attach** | ❌ No | ✅ Yes |
+| **EC2 + EKS access** | ❌ Not simultaneously | ✅ Simultaneously |
+| **AZ** | Single AZ | Multi-AZ |
+| **Cost** | Lower | Higher |
+| **Performance** | Higher IOPS | Lower IOPS |
+| **Use case** | Single pod | Multiple pods + EC2 |
+
+### When to Use Each
+
+| Use Case | Storage Type | Access Mode |
+|----------|--------------|-------------|
+| Single pod deployment | EBS | RWO |
+| Database (single replica) | EBS | RWO |
+| EC2 + EKS need same data | **EFS** | **RWX** |
+| Multiple pods need same data | EFS | RWX |
+| Shared configuration | EFS | RWX |
+
+---
+
 ## Storage Capacity
 
 | Metric | Value |
