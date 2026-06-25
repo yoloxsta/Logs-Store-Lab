@@ -103,7 +103,6 @@ Expected output:
 NAME           STATUS   VOLUME                                     CAPACITY   STORAGECLASS   AGE
 lab-logs-pvc   Bound    pvc-a9e5dab1-835f-4784-b7a2-d5201f1ecfe4   2Gi        ebs-sc         5m
 ```
-
 ### 3. Check Application Logs
 
 ```bash
