@@ -17,7 +17,6 @@
 | **RBAC Required** | No |
 
 ## Architecture
-
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    EKS Cluster: UATMuzic                    │
